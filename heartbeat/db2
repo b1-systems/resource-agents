@@ -722,6 +722,13 @@ db2_monitor() {
 
             ocf_log debug "DB2 database $instance($db2node)/$db appears to be working"
             ocf_is_ms && master_score -v 10000 -l reboot
+
+            # this is needed if a hadr cluster comes up with 2 PRIMARYs
+            # it writes attributes periodically to determine the active PRIMARY
+            # sets HADR_ROLE HADR_TIMEOUT HADR_PEER_WINDOW FIRST_ACTIVE_LOG
+            db2_get_cfg $db || true
+            # sets FIRST_ACTIVE_LOG ON STANDBY peers
+            db2_fal_attrib $db set $FIRST_ACTIVE_LOG || true
             ;;
 
             STANDBY/*PEER/*|Standby/*Peer)
