@@ -448,9 +448,36 @@ db2_start() {
         if [ $HADR_ROLE = PRIMARY ]
         then
             local master_fal
+            local fal_timeout
+            local timeout
 
             # communicate our FAL to other nodes the might start concurrently
             db2_fal_attrib $db set $FIRST_ACTIVE_LOG
+
+            # make sure node is made STANDBY if there is another PRIMARY
+            # test if attribute is missing, e. g. cluster start from scratch
+            if master_fal=$(db2_fal_attrib $db get); then
+                # test if FAL of PRIMARY is higher than LOCAL FAL
+                # in this case, wait until FAL on PRIMARY is higher to determine a valid PRIMARY
+                # exit 10 seconds before start timeout
+                fal_timeout=$(( $OCF_RESKEY_CRM_meta_timeout / 1000 - 10 ))
+                timeout=0
+                while  [ "$timeout" -lt "$fal_timeout" ]
+                do
+                    if master_fal=$(db2_fal_attrib $db get) && ! [ "$master_fal" '>' $FIRST_ACTIVE_LOG ]
+                    then
+                      ocf_log info "DB2 database $instance($db2node)/$db waiting for log update ..."
+                      sleep 10
+                    fi
+                    timeout=$(( timeout + 10 ))
+                done
+                if [ "$timeout" -ge "$fal_timeout" ]
+                then
+                    ocf_log err "Waited too long for DB2 log rotation. Manual intervention required."
+                    ocf_log err "If this DB shall become HADR STANDBY, check \"db2 get db cfg for $db\" here and \"db2pd -hadr -db $db\" on the HADR MASTER."
+                    return $OCF_ERR_GENERIC
+                fi
+            fi
 
             # ignore false positive:
             # error: Can't use > in [ ]. Escape it or use [[..]]. [SC2073]
